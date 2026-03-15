@@ -23,7 +23,7 @@ function formatUSD(n) {
 // ─── Position Sizing Calculator ───
 function PositionCalc() {
   const [balance, setBalance] = useState("");
-  const [currentLeverage, setCurrentLeverage] = useState("10"); // 新增：當前槓桿狀態
+  const [currentLeverage, setCurrentLeverage] = useState("10"); 
   const [riskPct, setRiskPct] = useState(2);
   const [entry, setEntry] = useState("");
   const [stopLoss, setStopLoss] = useState("");
@@ -32,7 +32,7 @@ function PositionCalc() {
 
   const calc = useCallback(() => {
     const b = parseFloat(balance);
-    const lev = parseFloat(currentLeverage) || 1; // 讀取使用者輸入的槓桿
+    const lev = parseFloat(currentLeverage) || 1; 
     const e = parseFloat(entry);
     const sl = parseFloat(stopLoss);
     const tp = parseFloat(takeProfit);
@@ -45,8 +45,12 @@ function PositionCalc() {
 
     const positionSize = riskAmount / (slDistance / e);
     const contracts = positionSize / e;
-    const actualLeverage = positionSize / b;
-    const requiredMargin = positionSize / lev; // 新增：計算所需保證金
+    const requiredMargin = positionSize / lev; 
+    
+    // 關鍵風險指標計算
+    const slPct = (slDistance / e) * 100; // 止損距離 %
+    const marginLossPct = slPct * lev; // 保證金虧損 %
+    const maxSafeLeverage = Math.floor(90 / slPct); // 建議安全槓桿 (預留 10% 空間防插針)
 
     let rrRatio = null;
     let tpPnl = null;
@@ -60,9 +64,10 @@ function PositionCalc() {
       riskAmount,
       positionSize,
       contracts,
-      actualLeverage,
       requiredMargin,
-      slPct: (slDistance / e) * 100,
+      slPct,
+      marginLossPct,
+      maxSafeLeverage,
       rrRatio,
       tpPnl,
       slDistance,
@@ -70,15 +75,6 @@ function PositionCalc() {
   }, [balance, currentLeverage, riskPct, entry, stopLoss, takeProfit, direction]);
 
   const result = calc();
-
-  const riskLevel =
-    result && result.actualLeverage > 20
-      ? "extreme"
-      : result && result.actualLeverage > 10
-      ? "high"
-      : result && result.actualLeverage > 5
-      ? "medium"
-      : "low";
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
@@ -100,7 +96,7 @@ function PositionCalc() {
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         <InputField label="帳戶餘額 (USDT)" value={balance} onChange={setBalance} placeholder="10000" />
-        <InputField label="當前槓桿 (x)" value={currentLeverage} onChange={setCurrentLeverage} placeholder="10" />
+        <InputField label="你開的槓桿 (x)" value={currentLeverage} onChange={setCurrentLeverage} placeholder="10" />
         <InputField label="進場價格" value={entry} onChange={setEntry} placeholder="95000" />
         <InputField label="止損價格" value={stopLoss} onChange={setStopLoss} placeholder="93000" />
         <InputField label="止盈價格 (選填)" value={takeProfit} onChange={setTakeProfit} placeholder="100000" />
@@ -108,7 +104,7 @@ function PositionCalc() {
 
       <div>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-          <span style={{ color: "rgba(255,255,255,0.5)", fontSize: 13 }}>單筆風險 (佔餘額比例)</span>
+          <span style={{ color: "rgba(255,255,255,0.5)", fontSize: 13 }}>單筆總資金風險 (想賠帳戶的幾%)</span>
           <span style={{ color: riskPct > 5 ? "#ef4444" : riskPct > 3 ? "#f59e0b" : "#22c55e", fontSize: 18, fontWeight: 800 }}>{riskPct}%</span>
         </div>
         <input type="range" min={0.5} max={10} step={0.5} value={riskPct} onChange={(e) => setRiskPct(parseFloat(e.target.value))} style={{ width: "100%" }} />
@@ -116,18 +112,57 @@ function PositionCalc() {
 
       {result && (
         <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 14, padding: 20, border: "1px solid rgba(255,255,255,0.06)" }}>
+          
+          {/* 基礎計算結果 */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
             <ResultCard label="最大虧損金額" value={formatUSD(result.riskAmount)} color="#ef4444" />
             <ResultCard label="建議倉位大小" value={formatUSD(result.positionSize)} color="#3b82f6" />
             <ResultCard label="合約數量 (單位)" value={formatNum(result.contracts, 4)} color="#a78bfa" />
             <ResultCard label="所需開倉保證金" value={formatUSD(result.requiredMargin)} color="#f59e0b" />
-            <ResultCard label="實際帳戶曝險槓桿" value={formatNum(result.actualLeverage, 1) + "x"} color={riskLevel === "extreme" ? "#ef4444" : "#22c55e"} />
-            {result.rrRatio ? (
-              <ResultCard label="風報比 (R:R)" value={"1 : " + formatNum(result.rrRatio, 1)} color="#22c55e" />
-            ) : (
-              <ResultCard label="止損距離" value={formatNum(result.slPct, 2) + "%"} color="#64748b" />
-            )}
           </div>
+
+          {/* 💡 交易教練診斷區塊 - 更強烈的視覺提示 */}
+          <div style={{
+            marginTop: 20,
+            padding: 20,
+            borderRadius: 12,
+            background: result.marginLossPct >= 100 ? "linear-gradient(135deg, rgba(239,68,68,0.15), rgba(220,38,38,0.05))" : 
+                        result.marginLossPct >= 60 ? "linear-gradient(135deg, rgba(245,158,11,0.15), rgba(217,119,6,0.05))" : 
+                        "linear-gradient(135deg, rgba(34,197,94,0.15), rgba(22,163,74,0.05))",
+            border: `1px solid ${result.marginLossPct >= 100 ? "rgba(239,68,68,0.3)" : result.marginLossPct >= 60 ? "rgba(245,158,11,0.3)" : "rgba(34,197,94,0.3)"}`
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <span style={{ fontSize: 20 }}>
+                {result.marginLossPct >= 100 ? "💥" : result.marginLossPct >= 60 ? "⚠️" : "✅"}
+              </span>
+              <span style={{ fontSize: 16, fontWeight: 800, color: result.marginLossPct >= 100 ? "#ef4444" : result.marginLossPct >= 60 ? "#f59e0b" : "#22c55e" }}>
+                AI 倉位風險診斷報告
+              </span>
+            </div>
+            
+            <div style={{ fontSize: 13, color: "rgba(255,255,255,0.8)", lineHeight: 1.6, display: "flex", flexDirection: "column", gap: 8 }}>
+              <div>
+                • 你的止損距離為 <span style={{ color: "#3b82f6", fontWeight: 700 }}>{formatNum(result.slPct, 2)}%</span>。
+              </div>
+              <div>
+                • 以你設定的 <span style={{ color: "#f59e0b", fontWeight: 700 }}>{currentLeverage}x</span> 槓桿，若打到止損，單筆保證金將虧損 <span style={{ color: result.marginLossPct >= 100 ? "#ef4444" : "#fff", fontWeight: 700 }}>{formatNum(result.marginLossPct, 1)}%</span>。
+              </div>
+
+              <div style={{ 
+                marginTop: 8, padding: "10px 14px", borderRadius: 8, 
+                background: result.marginLossPct >= 100 ? "rgba(239,68,68,0.15)" : result.marginLossPct >= 60 ? "rgba(245,158,11,0.15)" : "rgba(34,197,94,0.15)",
+                color: result.marginLossPct >= 100 ? "#fca5a5" : result.marginLossPct >= 60 ? "#fde68a" : "#bbf7d0",
+                fontWeight: 600
+              }}>
+                {result.marginLossPct >= 100 
+                  ? `【強烈警告】這單會爆倉！你的槓桿太高了，還沒碰到止損價就會被強制平倉。建議將槓桿降至 ${result.maxSafeLeverage < 1 ? 1 : result.maxSafeLeverage}x 以下。` 
+                  : result.marginLossPct >= 60 
+                  ? `【建議調整】槓桿稍高，打到止損會損耗極大比例的保證金。為防插針，建議將槓桿控制在 ${result.maxSafeLeverage}x 左右。` 
+                  : "【狀況良好】槓桿與止損配置安全，保證金足以扛住正常波動。"}
+              </div>
+            </div>
+          </div>
+
         </div>
       )}
     </div>
@@ -154,8 +189,8 @@ function EntryCalc() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       <div style={{ display: "flex", gap: 8 }}>
-        <button onClick={() => setTrend("up")} style={{ flex: 1, padding: "12px 0", borderRadius: 10, background: trend === "up" ? "#22c55e" : "rgba(255,255,255,0.04)", border: "none", color: "#fff", cursor: "pointer" }}>📈 上漲回撤 (找多點)</button>
-        <button onClick={() => setTrend("down")} style={{ flex: 1, padding: "12px 0", borderRadius: 10, background: trend === "down" ? "#ef4444" : "rgba(255,255,255,0.04)", border: "none", color: "#fff", cursor: "pointer" }}>📉 下跌反彈 (找空點)</button>
+        <button onClick={() => setTrend("up")} style={{ flex: 1, padding: "12px 0", borderRadius: 10, background: trend === "up" ? "#22c55e" : "rgba(255,255,255,0.04)", border: "none", color: "#fff", cursor: "pointer", fontWeight: 700 }}>📈 上漲回撤 (找多點)</button>
+        <button onClick={() => setTrend("down")} style={{ flex: 1, padding: "12px 0", borderRadius: 10, background: trend === "down" ? "#ef4444" : "rgba(255,255,255,0.04)", border: "none", color: "#fff", cursor: "pointer", fontWeight: 700 }}>📉 下跌反彈 (找空點)</button>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         <InputField label="波段高點" value={swingHigh} onChange={setSwingHigh} placeholder="100000" />
