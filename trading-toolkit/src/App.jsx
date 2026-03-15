@@ -7,14 +7,6 @@ const FIB_LEVELS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
 const FIB_LABELS = ["0%", "23.6%", "38.2%", "50%", "61.8%", "78.6%", "100%"];
 const FIB_COLORS = ["#6b7280", "#3b82f6", "#8b5cf6", "#f59e0b", "#ef4444", "#ec4899", "#6b7280"];
 
-// Vegas Channel EMAs
-const VEGAS_EMAS = [
-  { period: 144, color: "#3b82f6", label: "EMA 144" },
-  { period: 169, color: "#60a5fa", label: "EMA 169" },
-  { period: 576, color: "#ef4444", label: "EMA 576" },
-  { period: 676, color: "#f87171", label: "EMA 676" },
-];
-
 function formatNum(n, decimals = 2) {
   if (isNaN(n) || !isFinite(n)) return "—";
   return Number(n).toLocaleString("en-US", {
@@ -31,6 +23,7 @@ function formatUSD(n) {
 // ─── Position Sizing Calculator ───
 function PositionCalc() {
   const [balance, setBalance] = useState("");
+  const [currentLeverage, setCurrentLeverage] = useState("10"); // 新增：當前槓桿狀態
   const [riskPct, setRiskPct] = useState(2);
   const [entry, setEntry] = useState("");
   const [stopLoss, setStopLoss] = useState("");
@@ -39,9 +32,11 @@ function PositionCalc() {
 
   const calc = useCallback(() => {
     const b = parseFloat(balance);
+    const lev = parseFloat(currentLeverage) || 1; // 讀取使用者輸入的槓桿
     const e = parseFloat(entry);
     const sl = parseFloat(stopLoss);
     const tp = parseFloat(takeProfit);
+    
     if (!b || !e || !sl || b <= 0 || e <= 0 || sl <= 0) return null;
 
     const riskAmount = b * (riskPct / 100);
@@ -50,7 +45,8 @@ function PositionCalc() {
 
     const positionSize = riskAmount / (slDistance / e);
     const contracts = positionSize / e;
-    const leverage = positionSize / b;
+    const actualLeverage = positionSize / b;
+    const requiredMargin = positionSize / lev; // 新增：計算所需保證金
 
     let rrRatio = null;
     let tpPnl = null;
@@ -64,22 +60,23 @@ function PositionCalc() {
       riskAmount,
       positionSize,
       contracts,
-      leverage,
+      actualLeverage,
+      requiredMargin,
       slPct: (slDistance / e) * 100,
       rrRatio,
       tpPnl,
       slDistance,
     };
-  }, [balance, riskPct, entry, stopLoss, takeProfit, direction]);
+  }, [balance, currentLeverage, riskPct, entry, stopLoss, takeProfit, direction]);
 
   const result = calc();
 
   const riskLevel =
-    result && result.leverage > 20
+    result && result.actualLeverage > 20
       ? "extreme"
-      : result && result.leverage > 10
+      : result && result.actualLeverage > 10
       ? "high"
-      : result && result.leverage > 5
+      : result && result.actualLeverage > 5
       ? "medium"
       : "low";
 
@@ -103,6 +100,7 @@ function PositionCalc() {
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         <InputField label="帳戶餘額 (USDT)" value={balance} onChange={setBalance} placeholder="10000" />
+        <InputField label="當前槓桿 (x)" value={currentLeverage} onChange={setCurrentLeverage} placeholder="10" />
         <InputField label="進場價格" value={entry} onChange={setEntry} placeholder="95000" />
         <InputField label="止損價格" value={stopLoss} onChange={setStopLoss} placeholder="93000" />
         <InputField label="止盈價格 (選填)" value={takeProfit} onChange={setTakeProfit} placeholder="100000" />
@@ -110,7 +108,7 @@ function PositionCalc() {
 
       <div>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-          <span style={{ color: "rgba(255,255,255,0.5)", fontSize: 13 }}>單筆風險</span>
+          <span style={{ color: "rgba(255,255,255,0.5)", fontSize: 13 }}>單筆風險 (佔餘額比例)</span>
           <span style={{ color: riskPct > 5 ? "#ef4444" : riskPct > 3 ? "#f59e0b" : "#22c55e", fontSize: 18, fontWeight: 800 }}>{riskPct}%</span>
         </div>
         <input type="range" min={0.5} max={10} step={0.5} value={riskPct} onChange={(e) => setRiskPct(parseFloat(e.target.value))} style={{ width: "100%" }} />
@@ -121,8 +119,14 @@ function PositionCalc() {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
             <ResultCard label="最大虧損金額" value={formatUSD(result.riskAmount)} color="#ef4444" />
             <ResultCard label="建議倉位大小" value={formatUSD(result.positionSize)} color="#3b82f6" />
-            <ResultCard label="合約數量" value={formatNum(result.contracts, 4)} color="#a78bfa" />
-            <ResultCard label="所需槓桿" value={formatNum(result.leverage, 1) + "x"} color={riskLevel === "extreme" ? "#ef4444" : "#22c55e"} />
+            <ResultCard label="合約數量 (單位)" value={formatNum(result.contracts, 4)} color="#a78bfa" />
+            <ResultCard label="所需開倉保證金" value={formatUSD(result.requiredMargin)} color="#f59e0b" />
+            <ResultCard label="實際帳戶曝險槓桿" value={formatNum(result.actualLeverage, 1) + "x"} color={riskLevel === "extreme" ? "#ef4444" : "#22c55e"} />
+            {result.rrRatio ? (
+              <ResultCard label="風報比 (R:R)" value={"1 : " + formatNum(result.rrRatio, 1)} color="#22c55e" />
+            ) : (
+              <ResultCard label="止損距離" value={formatNum(result.slPct, 2) + "%"} color="#64748b" />
+            )}
           </div>
         </div>
       )}
@@ -150,8 +154,8 @@ function EntryCalc() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       <div style={{ display: "flex", gap: 8 }}>
-        <button onClick={() => setTrend("up")} style={{ flex: 1, padding: "12px 0", borderRadius: 10, background: trend === "up" ? "#22c55e" : "rgba(255,255,255,0.04)", border: "none", color: "#fff", cursor: "pointer" }}>📈 上漲回撤</button>
-        <button onClick={() => setTrend("down")} style={{ flex: 1, padding: "12px 0", borderRadius: 10, background: trend === "down" ? "#ef4444" : "rgba(255,255,255,0.04)", border: "none", color: "#fff", cursor: "pointer" }}>📉 下跌反彈</button>
+        <button onClick={() => setTrend("up")} style={{ flex: 1, padding: "12px 0", borderRadius: 10, background: trend === "up" ? "#22c55e" : "rgba(255,255,255,0.04)", border: "none", color: "#fff", cursor: "pointer" }}>📈 上漲回撤 (找多點)</button>
+        <button onClick={() => setTrend("down")} style={{ flex: 1, padding: "12px 0", borderRadius: 10, background: trend === "down" ? "#ef4444" : "rgba(255,255,255,0.04)", border: "none", color: "#fff", cursor: "pointer" }}>📉 下跌反彈 (找空點)</button>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         <InputField label="波段高點" value={swingHigh} onChange={setSwingHigh} placeholder="100000" />
@@ -185,13 +189,12 @@ function ResultCard({ label, value, color }) {
   return (
     <div style={{ background: `${color}10`, borderRadius: 10, padding: "14px", border: `1px solid ${color}20` }}>
       <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 18, fontWeight: 800, color }}>{value}</div>
+      <div style={{ fontSize: 16, fontWeight: 800, color }}>{value}</div>
     </div>
   );
 }
 
 // ─── Main App ───
-// 這裡是關鍵修復點：確保導出名稱為 App，並且有 export default
 export default function App() {
   const [activeTab, setActiveTab] = useState(0);
 
@@ -215,7 +218,7 @@ export default function App() {
 
       <div style={{ padding: "0 16px" }}>{activeTab === 0 ? <PositionCalc /> : <EntryCalc />}</div>
 
-      {/* LINE 社群按鈕區塊 */}
+      {/* LINE CTA */}
       <div style={{ margin: "32px 16px 0", padding: 20, borderRadius: 14, background: "rgba(6,199,85,0.05)", border: "1px solid rgba(6,199,85,0.15)", textAlign: "center" }}>
         <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>想看實戰怎麼用？</div>
         <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", marginBottom: 14 }}>加入「SM浪潮」社群，分享實單操作與交易觀點</div>
@@ -227,6 +230,7 @@ export default function App() {
         >
           立即加入「SM浪潮」社群
         </a>
+        <div style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", marginTop: 12 }}>入群申請：你的名字/GH</div>
       </div>
     </div>
   );
