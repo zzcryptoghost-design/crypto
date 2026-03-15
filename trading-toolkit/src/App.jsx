@@ -121,7 +121,7 @@ function PositionCalc() {
             <ResultCard label="所需開倉保證金" value={formatUSD(result.requiredMargin)} color="#f59e0b" />
           </div>
 
-          {/* 💡 交易教練診斷區塊 - 更強烈的視覺提示 */}
+          {/* 💡 交易教練診斷區塊 - 移除標題，保留數據與警告 */}
           <div style={{
             marginTop: 20,
             padding: 20,
@@ -131,15 +131,6 @@ function PositionCalc() {
                         "linear-gradient(135deg, rgba(34,197,94,0.15), rgba(22,163,74,0.05))",
             border: `1px solid ${result.marginLossPct >= 100 ? "rgba(239,68,68,0.3)" : result.marginLossPct >= 60 ? "rgba(245,158,11,0.3)" : "rgba(34,197,94,0.3)"}`
           }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-              <span style={{ fontSize: 20 }}>
-                {result.marginLossPct >= 100 ? "💥" : result.marginLossPct >= 60 ? "⚠️" : "✅"}
-              </span>
-              <span style={{ fontSize: 16, fontWeight: 800, color: result.marginLossPct >= 100 ? "#ef4444" : result.marginLossPct >= 60 ? "#f59e0b" : "#22c55e" }}>
-                AI 倉位風險診斷報告
-              </span>
-            </div>
-            
             <div style={{ fontSize: 13, color: "rgba(255,255,255,0.8)", lineHeight: 1.6, display: "flex", flexDirection: "column", gap: 8 }}>
               <div>
                 • 你的止損距離為 <span style={{ color: "#3b82f6", fontWeight: 700 }}>{formatNum(result.slPct, 2)}%</span>。
